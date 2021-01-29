@@ -1,6 +1,8 @@
 /****************************************************************************
  *
  * Copyright 2017 Lee Mitchell <lee@indigopepper.com>
+ * Copyright 2020 Matthieu Guérif <guerif.matthieu@icloud.com>
+ *
  * This file is part of JN51xx 802.15.4 Sniffer Server
  *
  * JN51xx 802.15.4 Sniffer Server is free software: you can redistribute it
@@ -16,26 +18,30 @@
  * You should have received a copy of the GNU General Public License
  * along with JN51xx 802.15.4 Sniffer Server.  If not,
  * see <http://www.gnu.org/licenses/>.
- *
  ****************************************************************************/
 
-/****************************************************************************/
-/***        Include files                                                 ***/
-/****************************************************************************/
+/*
+	Include files
+*/
 
-#include <windows.h>
 #include <stdio.h>
-#include <winsock.h>
 #include <getopt.h>
 #include <errno.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <stdlib.h>
+#include <string.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
 #include "uart.h"
 
-/****************************************************************************/
-/***        Macro Definitions                                             ***/
-/****************************************************************************/
 
-#define DEFAULT_SNIFFER_PORT	49999
+/*
+Macro Definition
+*/
 
+#define DEFAULT_SNIFFER_PORT	49999 // Define the udp port where the socket are going to be transmitted 
 #define OFFSET_TIMESTAMP		0
 #define OFFSET_ID				5
 #define OFFSET_CHANNEL			7
@@ -46,11 +52,14 @@
 #define LENGTH_ID				1
 #define LENGTH_CHANNEL			1
 #define LENGTH_LQI				1
-#define LENGTH_LENGTH			1
+#define LENGTH_LENGTH			10000
 
-/****************************************************************************/
-/***        Type Definitions                                              ***/
-/****************************************************************************/
+#define TRUE 1
+#define FALSE 0
+
+/*
+Type Definitions
+*/
 
 typedef enum
 {
@@ -114,11 +123,11 @@ typedef struct
 
 typedef struct
 {
-	volatile boolean	bExitRequest;
-	volatile boolean	bExit;
-	boolean				bVerbose;
-	boolean				bSilent;
-	boolean				bDebug;
+	volatile bool 		bExitRequest;
+	volatile bool		bExit;
+	bool				bVerbose;
+	bool				bSilent;
+	bool				bDebug;
 	teState				eState;
 	char				*pstrSerialPort;
 	int					iBaudRate;
@@ -130,9 +139,9 @@ typedef struct
 	int					iPacketsSniffed;
 } tsInstance;
 
-/****************************************************************************/
-/***        Local Function Prototypes                                     ***/
-/****************************************************************************/
+/*
+Local Function Prototype
+*/
 
 static void vParseCommandLineOptions(tsInstance *psInstance, int argc, char *argv[]);
 static BOOL WINAPI bCtrlHandler(DWORD dwCtrlType);
@@ -142,54 +151,18 @@ static teStatus eReadFromUart(tsInstance *psInstance, int iTimeoutMilliseconds, 
 static teStatus eWriteToUart(tsInstance *psInstance, int iLength, uint8_t *pu8Data);
 static uint8_t u8CalculateChecksum(uint8_t *pu8Message);
 
-/****************************************************************************/
-/***        Exported Variables                                            ***/
-/****************************************************************************/
-
-/****************************************************************************/
-/***        Local Variables                                               ***/
-/****************************************************************************/
+/*
+Local Variables
+*/
 
 static tsInstance sInstance;
 
-/****************************************************************************/
-/***        Exported Functions                                            ***/
-/****************************************************************************/
+/*
+Entry point
+*/
 
-/****************************************************************************
- *
- * NAME: main
- *
- * DESCRIPTION:
- * Application entry point
- *
- * RETURNS:
- * int
- *
- ****************************************************************************/
-int main(int argc, char *argv[])
-{
-	int udp_socket;
-	struct sockaddr_in si_other;
-	int slen = sizeof(si_other);
+int main (int argc, char *argv[]) {
 
-    WSADATA wsaData;
-
-    tsMessage sMessage;
-    uint8_t au8MessageBuffer[255];
-    int iOffset;
-//          |--------|--------|--------|--------|--------|--------|--------|--------
-	printf("+----------------------------------------------------------------------+\n" \
-		   "|               JN51xx 802.15.4 Sniffer Server                         |\n" \
-		   "| Copyright (C) 2017 Lee Mitchell <lee@indigopepper.com>               |\n" \
-		   "|                                                                      |\n" \
-	       "| This program comes with ABSOLUTELY NO WARRANTY.                      |\n" \
-		   "| This is free software, and you are welcome to redistribute it        |\n" \
-		   "| under certain conditions; See the GNU General Public License         |\n" \
-		   "| version 3 or later for more details. You should have received a copy |\n" \
-		   "| of the GNU General Public License along with JN51xx 802.15.4 Sniffer |\n" \
-		   "| Server. If not, see <http://www.gnu.org/licenses/>.                  |\n" \
-		   "+----------------------------------------------------------------------+\n\n");
 
 	/* Initialise application state and set some defaults */
 	sInstance.bExit = FALSE;
@@ -197,22 +170,26 @@ int main(int argc, char *argv[])
 	sInstance.bSilent = FALSE;
 	sInstance.bDebug = FALSE;
 	sInstance.eState = E_STATE_SET_CHANNEL;
-	sInstance.pstrSerialPort = NULL;
-	sInstance.iBaudRate = 1000000;
+	sInstance.pstrSerialPort = "NULL";
 	sInstance.u8Channel = 11;
 	sInstance.pstrIpAddress = "127.0.0.1";
 	sInstance.iPort = DEFAULT_SNIFFER_PORT;
 	sInstance.pstrSnifferId = NULL;
 	sInstance.iPacketsSniffed = 0;
+	
+	int udp_socket;
+	struct sockaddr_in si_other;
+	int slen = sizeof(si_other);
+    tsMessage sMessage;
+    uint8_t au8MessageBuffer[255];
+    int iOffset;
 
 	memset(&sMessage, 0, sizeof(tsMessage));
 
-    SetConsoleCtrlHandler(bCtrlHandler, TRUE);
-
-    /* Parse the command line options */
+	/* Parse the command line options */
     vParseCommandLineOptions(&sInstance, argc, argv);
 
-    /* Check that a serial port option was passed on the command line */
+	/* Check that a serial port option was passed on the command line */
     if(sInstance.pstrSerialPort == NULL)
     {
     	printf("Error: No serial port specified\n");
@@ -231,21 +208,14 @@ int main(int argc, char *argv[])
 	if(sInstance.pstrSnifferId == NULL)
 	{
 		sInstance.pstrSnifferId = sInstance.pstrSerialPort;
+		printf("%s\n",sInstance.pstrSerialPort );
 	}
 
-    /* Try and open the comm port */
-	if(UART_bOpen(&sInstance.hUartHandle, sInstance.pstrSerialPort, 1000000) == FALSE)
+	/* Try and open the serial port */
+	if(UART_bOpen(sInstance.pstrSnifferId, 1000000) == FALSE)
 	{
 		printf("Error: Failed to open the serial port!\n");
 		UART_vListPorts();
-		exit(EXIT_FAILURE);
-	}
-
-	/* Create the socket */
-    WSAStartup(MAKEWORD(2, 2), &wsaData);
-    udp_socket = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
-	if (udp_socket < 0) {
-		printf("Error: Can't create UDP socket\n");
 		exit(EXIT_FAILURE);
 	}
 
@@ -253,7 +223,7 @@ int main(int argc, char *argv[])
 	memset((char *) &si_other, 0, sizeof(si_other));
 	si_other.sin_family = AF_INET;
 	si_other.sin_port = htons(sInstance.iPort);
-	si_other.sin_addr.S_un.S_addr = inet_addr(sInstance.pstrIpAddress);
+	si_other.sin_addr.s_addr = inet_addr(sInstance.pstrIpAddress);
 
 	printf("Starting on port %s at %d baud\nSniffing on channel %d\nSending to %s:%d\n", sInstance.pstrSerialPort,
 			sInstance.iBaudRate,
@@ -261,256 +231,237 @@ int main(int argc, char *argv[])
 			sInstance.pstrIpAddress,
 			sInstance.iPort);
 
+	printf("Starting on port %s at %d baud\nSniffing on channel %d\nSending to %s:%d\n", sInstance.pstrSerialPort,
+			sInstance.iBaudRate,
+			sInstance.u8Channel,
+			sInstance.pstrIpAddress,
+			sInstance.iPort);
 
-    /* Main program loop, execute until we get a signal requesting to exit */
-    while(!sInstance.bExit)
-    {
+    while(!sInstance.bExit) {
 
-    	switch(sInstance.eState)
-    	{
+    	switch(sInstance.eState) {
 
-    	case E_STATE_SET_CHANNEL:
-    	    if(sInstance.bVerbose) printf("Setting channel to %d\n", sInstance.u8Channel);
-    		sMessage.u8MessageId = E_SNIFFER_MESSAGE_ID_CHANNEL_SELECT;
-    		sMessage.u8Length = 1;
-    		sMessage.au8Data[0] = sInstance.u8Channel;
-    		if(eWriteMessage(&sInstance, &sMessage) == E_STATUS_OK)
-    		{
-    			sInstance.eState++;
-    		}
-    		break;
+	    	case E_STATE_SET_CHANNEL:
+	    	    if(sInstance.bVerbose) printf("Setting channel to %d\n", sInstance.u8Channel);
+	    		sMessage.u8MessageId = E_SNIFFER_MESSAGE_ID_CHANNEL_SELECT;
+	    		sMessage.u8Length = 1;
+	    		sMessage.au8Data[0] = sInstance.u8Channel;
+	    		if(eWriteMessage(&sInstance, &sMessage) == E_STATUS_OK)
+	    		{
+	    			sInstance.eState++;
+	    		}
+	    		break;
 
-    	case E_STATE_WAIT_SET_CHANNEL_RESPONSE:
-    		switch(eReadMessage(&sInstance, &sMessage))
-    		{
+	    	case E_STATE_WAIT_SET_CHANNEL_RESPONSE:
+	    		switch(eReadMessage(&sInstance, &sMessage)) {
 
-    		case E_STATUS_OK:
-    			if(sMessage.u8MessageId == E_SNIFFER_MESSAGE_ID_COMMAND_ACKNOWLEDGE_EVENT &&
-    			   sMessage.u8Length == 1 &&
-    			   sMessage.au8Data[0] == E_SNIFFER_ACK_SUCCESS)
-    			{
-    				if(sInstance.bVerbose) printf("Channel set to %d successfully\n", sInstance.u8Channel);
-    	    	    sInstance.eState++;
+		    		case E_STATUS_OK:
+		    			if(sMessage.u8MessageId == E_SNIFFER_MESSAGE_ID_COMMAND_ACKNOWLEDGE_EVENT &&
+		    			   sMessage.u8Length == 1 &&
+		    			   sMessage.au8Data[0] == E_SNIFFER_ACK_SUCCESS)
+		    			{
+		    				if(sInstance.bVerbose) printf("Channel set to %d successfully\n", sInstance.u8Channel);
+		    	    	    sInstance.eState++;
+		    			}
+		    			else
+		    			{
+		    				if(sInstance.bVerbose) printf("State %d response %d\n", sInstance.eState, sMessage.au8Data[0]);
+		    	    	    sInstance.eState = E_STATE_SET_CHANNEL;
+		    			}
+		    			break;
+
+		    		case E_STATUS_AGAIN:
+		    			break;
+
+		    		case E_STATUS_ERROR_TIMEOUT:
+		    			if(sInstance.bVerbose) printf("Timeout waiting for set channel response\n");
+		        	    sInstance.eState = E_STATE_SET_CHANNEL;
+		    			break;
+
+		    		default:
+		    			if(sInstance.bVerbose) printf("Got unexpected response while waiting for set channel response, retrying\n");
+		        	    sInstance.eState = E_STATE_SET_CHANNEL;
+		    			break;
+
     			}
-    			else
-    			{
-    				if(sInstance.bVerbose) printf("State %d response %d\n", sInstance.eState, sMessage.au8Data[0]);
-    	    	    sInstance.eState = E_STATE_SET_CHANNEL;
-    			}
-    			break;
+     			break;
 
-    		case E_STATUS_AGAIN:
-    			break;
+	    	case E_STATE_TURN_RX_ON:
+	    		if(sInstance.bVerbose) printf("Turning receiver on\n");
+	    		sMessage.u8MessageId = E_SNIFFER_MESSAGE_ID_RECEIVER_CONTROL;
+	    		sMessage.u8Length = 1;
+	    		sMessage.au8Data[0] = 1;
+	    		if(eWriteMessage(&sInstance, &sMessage) == E_STATUS_OK)
+	    		{
+	    			sInstance.eState++;
+	    		}
+	    		break;
 
-    		case E_STATUS_ERROR_TIMEOUT:
-    			if(sInstance.bVerbose) printf("Timeout waiting for set channel response\n");
-        	    sInstance.eState = E_STATE_SET_CHANNEL;
-    			break;
+	        case E_STATE_WAIT_TURN_RX_ON_RESPONSE:
+	    		switch(eReadMessage(&sInstance, &sMessage)) {
 
-    		default:
-    			if(sInstance.bVerbose) printf("Got unexpected response while waiting for set channel response, retrying\n");
-        	    sInstance.eState = E_STATE_SET_CHANNEL;
-    			break;
+		    		case E_STATUS_OK:
+		    			if(sMessage.u8MessageId == E_SNIFFER_MESSAGE_ID_COMMAND_ACKNOWLEDGE_EVENT &&
+		    			   sMessage.u8Length == 1 &&
+		    			   ((sMessage.au8Data[0] == E_SNIFFER_ACK_SUCCESS) || (sMessage.au8Data[0] == E_SNIFFER_ACK_RX_ON)))
+		    			{
+		    				if(sInstance.bVerbose) printf("Receiver on, waiting for packets\n");
+		        			if(!sInstance.bSilent) printf("Packets received: 0");
+		    	    	    sInstance.eState++;
+		    			}
+		    			else
+		    			{
+		    				if(sInstance.bVerbose) printf("State %d response %d\n", sInstance.eState, sMessage.au8Data[0]);
+		    	    	    sInstance.eState = E_STATE_SET_CHANNEL;
+		    			}
+		    			break;
 
-    		}
-     		break;
+		    		case E_STATUS_ERROR_TIMEOUT:
+		    			if(sInstance.bVerbose) printf("Timeout waiting for rx on response\n");
+		        	    sInstance.eState = E_STATE_SET_CHANNEL;
+		    			break;
 
-    	case E_STATE_TURN_RX_ON:
-    		if(sInstance.bVerbose) printf("Turning receiver on\n");
-    		sMessage.u8MessageId = E_SNIFFER_MESSAGE_ID_RECEIVER_CONTROL;
-    		sMessage.u8Length = 1;
-    		sMessage.au8Data[0] = 1;
-    		if(eWriteMessage(&sInstance, &sMessage) == E_STATUS_OK)
-    		{
-    			sInstance.eState++;
-    		}
-    		break;
+		    		case E_STATUS_AGAIN:
+		    			break;
 
-        case E_STATE_WAIT_TURN_RX_ON_RESPONSE:
-    		switch(eReadMessage(&sInstance, &sMessage))
-    		{
+		    		default:
+		    			sInstance.eState = E_STATE_SET_CHANNEL;
+		    			break;
+	    		}
+        		break;
 
-    		case E_STATUS_OK:
-    			if(sMessage.u8MessageId == E_SNIFFER_MESSAGE_ID_COMMAND_ACKNOWLEDGE_EVENT &&
-    			   sMessage.u8Length == 1 &&
-    			   ((sMessage.au8Data[0] == E_SNIFFER_ACK_SUCCESS) || (sMessage.au8Data[0] == E_SNIFFER_ACK_RX_ON)))
-    			{
-    				if(sInstance.bVerbose) printf("Receiver on, waiting for packets\n");
-        			if(!sInstance.bSilent) printf("Packets received: 0");
-    	    	    sInstance.eState++;
-    			}
-    			else
-    			{
-    				if(sInstance.bVerbose) printf("State %d response %d\n", sInstance.eState, sMessage.au8Data[0]);
-    	    	    sInstance.eState = E_STATE_SET_CHANNEL;
-    			}
-    			break;
+	    	case E_STATE_WAIT_FOR_PACKETS:
+	    		switch(eReadMessage(&sInstance, &sMessage))
+	    		{
 
-    		case E_STATUS_ERROR_TIMEOUT:
-    			if(sInstance.bVerbose) printf("Timeout waiting for rx on response\n");
-        	    sInstance.eState = E_STATE_SET_CHANNEL;
-    			break;
+		    		case E_STATUS_OK:
+		    			if(sMessage.u8MessageId != E_SNIFFER_MESSAGE_ID_DATA_EVENT)
+		    			{
+		    				break;
+		    			}
 
-    		case E_STATUS_AGAIN:
-    			break;
+		    			sInstance.iPacketsSniffed++;
 
-    		default:
-    			sInstance.eState = E_STATE_SET_CHANNEL;
-    			break;
+		    			if(!sInstance.bSilent)
+		    			{
+		        			printf("\rPackets received: %d", sInstance.iPacketsSniffed);
+		        			fflush(stdout);
+		    			}
 
-    		}
-        	break;
+		    			/* Print the Size of the sniffed packet and what's inside in hex*/
+                        printf ("\nu8Length = %d\n", sMessage.u8Length );
+                        for (int i=0;i<sMessage.u8Length;i++)
+                            printf ("%02X ", sMessage.au8Data[i]);
+                        printf ("\n\n");
 
+		    			/* Construct a UDP message containing the sniffed packet */
+		    			iOffset = OFFSET_TIMESTAMP;
 
-    	case E_STATE_WAIT_FOR_PACKETS:
-    		switch(eReadMessage(&sInstance, &sMessage))
-    		{
+						/* Copy timestamp from the sniffed message */
+						memcpy(&au8MessageBuffer[iOffset], &sMessage.au8Data[0], LENGTH_TIMESTAMP);
+						iOffset += LENGTH_TIMESTAMP;
 
-    		case E_STATUS_OK:
-    			if(sMessage.u8MessageId != E_SNIFFER_MESSAGE_ID_DATA_EVENT)
-    			{
+						/* Copy ID */
+						memcpy(&au8MessageBuffer[iOffset], sInstance.pstrSnifferId, LENGTH_ID + strlen(sInstance.pstrSnifferId));
+						iOffset += LENGTH_ID + strlen(sInstance.pstrSnifferId);
+
+						/* Copy channel */
+						memcpy(&au8MessageBuffer[iOffset], &sInstance.u8Channel, LENGTH_CHANNEL);
+						iOffset += LENGTH_CHANNEL;
+
+						/* Copy LQI from sniffed message */
+						memcpy(&au8MessageBuffer[iOffset], &sMessage.au8Data[sMessage.u8Length - 2], LENGTH_LQI);
+						iOffset += LENGTH_LQI;
+
+						/* Copy length from sniffed message */
+						memcpy(&au8MessageBuffer[iOffset], &sMessage.au8Data[5], LENGTH_LENGTH);
+						iOffset += LENGTH_LENGTH;
+
+						/* Copy packet and FCS from sniffed message */
+						memcpy(&au8MessageBuffer[iOffset], &sMessage.au8Data[6], sMessage.au8Data[5]);
+						iOffset += sMessage.au8Data[5];
+
+						/* Send the UDP message */
+						if(sendto(udp_socket, au8MessageBuffer, iOffset, 0, (struct sockaddr*)&si_other, slen) < 0)
+						{
+							printf("Error sending to socket %d\n", sInstance.iPort);
+						}
+		    			break;
+
+    				case E_STATUS_AGAIN:
+    				case E_STATUS_ERROR_TIMEOUT:
     				break;
+
+    				default:
+    					sInstance.eState = E_STATE_SET_CHANNEL;
+    				break;
+
     			}
+    			break;
 
-    			sInstance.iPacketsSniffed++;
-
-    			if(!sInstance.bSilent)
-    			{
-        			printf("\rPackets received: %d", sInstance.iPacketsSniffed);
-        			fflush(stdout);
-    			}
-
-    			/* Construct a UDP message containing the sniffed packet */
-    			iOffset = OFFSET_TIMESTAMP;
-
-				/* Copy timestamp from the sniffed message */
-				memcpy(&au8MessageBuffer[iOffset], &sMessage.au8Data[0], LENGTH_TIMESTAMP);
-				iOffset += LENGTH_TIMESTAMP;
-
-				/* Copy ID */
-				memcpy(&au8MessageBuffer[iOffset], sInstance.pstrSnifferId, LENGTH_ID + strlen(sInstance.pstrSnifferId));
-				iOffset += LENGTH_ID + strlen(sInstance.pstrSnifferId);
-
-				/* Copy channel */
-				memcpy(&au8MessageBuffer[iOffset], &sInstance.u8Channel, LENGTH_CHANNEL);
-				iOffset += LENGTH_CHANNEL;
-
-				/* Copy LQI from sniffed message */
-				memcpy(&au8MessageBuffer[iOffset], &sMessage.au8Data[sMessage.u8Length - 2], LENGTH_LQI);
-				iOffset += LENGTH_LQI;
-
-				/* Copy length from sniffed message */
-				memcpy(&au8MessageBuffer[iOffset], &sMessage.au8Data[5], LENGTH_LENGTH);
-				iOffset += LENGTH_LENGTH;
-
-				/* Copy packet and FCS from sniffed message */
-				memcpy(&au8MessageBuffer[iOffset], &sMessage.au8Data[6], sMessage.au8Data[5]);
-				iOffset += sMessage.au8Data[5];
-
-				/* Send the UDP message */
-				if(sendto(udp_socket, au8MessageBuffer, iOffset, 0, (struct sockaddr*)&si_other, slen) < 0)
+			case E_STATE_TURN_RX_OFF:
+				if(sInstance.bVerbose) printf("Turning receiver off\n");
+				sMessage.u8MessageId = E_SNIFFER_MESSAGE_ID_RECEIVER_CONTROL;
+				sMessage.u8Length = 1;
+				sMessage.au8Data[0] = 0;
+				if(eWriteMessage(&sInstance, &sMessage) == E_STATUS_OK)
 				{
-					printf("Error sending to socket %d\n", sInstance.iPort);
-				}
-    			break;
-
-    		case E_STATUS_AGAIN:
-    		case E_STATUS_ERROR_TIMEOUT:
-    			break;
-
-    		default:
-    			sInstance.eState = E_STATE_SET_CHANNEL;
-    			break;
-
-    		}
-    		break;
-
-		case E_STATE_TURN_RX_OFF:
-			if(sInstance.bVerbose) printf("Turning receiver off\n");
-			sMessage.u8MessageId = E_SNIFFER_MESSAGE_ID_RECEIVER_CONTROL;
-			sMessage.u8Length = 1;
-			sMessage.au8Data[0] = 0;
-			if(eWriteMessage(&sInstance, &sMessage) == E_STATUS_OK)
-			{
-				sInstance.eState++;
-			}
-			break;
-
-		case E_STATE_WAIT_TURN_RX_OFF_RESPONSE:
-			switch(eReadMessage(&sInstance, &sMessage))
-			{
-
-			case E_STATUS_OK:
-				if(sMessage.u8MessageId == E_SNIFFER_MESSAGE_ID_COMMAND_ACKNOWLEDGE_EVENT &&
-				   sMessage.u8Length == 1 &&
-				   ((sMessage.au8Data[0] == E_SNIFFER_ACK_SUCCESS) || (sMessage.au8Data[0] == E_SNIFFER_ACK_RX_OFF)))
-				{
-					if(sInstance.bVerbose) printf("Receiver turned off\n");
 					sInstance.eState++;
 				}
-				else
+				break;
+
+			case E_STATE_WAIT_TURN_RX_OFF_RESPONSE:
+				switch(eReadMessage(&sInstance, &sMessage))
 				{
-					if(sInstance.bVerbose) printf("State %d response %d\n", sInstance.eState, sMessage.au8Data[0]);
-					sInstance.eState = E_STATE_EXIT;
-				}
+
+					case E_STATUS_OK:
+						if(sMessage.u8MessageId == E_SNIFFER_MESSAGE_ID_COMMAND_ACKNOWLEDGE_EVENT &&
+						   sMessage.u8Length == 1 &&
+						   ((sMessage.au8Data[0] == E_SNIFFER_ACK_SUCCESS) || (sMessage.au8Data[0] == E_SNIFFER_ACK_RX_OFF)))
+						{
+							if(sInstance.bVerbose) printf("Receiver turned off\n");
+							sInstance.eState++;
+						}
+						else
+						{
+							if(sInstance.bVerbose) printf("State %d response %d\n", sInstance.eState, sMessage.au8Data[0]);
+							sInstance.eState = E_STATE_EXIT;
+						}
+						break;
+
+					case E_STATUS_ERROR_TIMEOUT:
+						if(sInstance.bVerbose) printf("Timeout waiting for rx off response\n");
+						sInstance.eState = E_STATE_EXIT;
+						break;
+
+					case E_STATUS_AGAIN:
+						break;
+
+					default:
+						sInstance.eState = E_STATE_EXIT;
+						break;
+
+					}
+					break;
+
+			case E_STATE_EXIT:
+				sInstance.bExit = TRUE;
 				break;
-
-			case E_STATUS_ERROR_TIMEOUT:
-				if(sInstance.bVerbose) printf("Timeout waiting for rx off response\n");
-				sInstance.eState = E_STATE_EXIT;
-				break;
-
-			case E_STATUS_AGAIN:
-				break;
-
-			default:
-				sInstance.eState = E_STATE_EXIT;
-				break;
-
-			}
-			break;
-
-		case E_STATE_EXIT:
-			sInstance.bExit = TRUE;
-			break;
-
-    	}
+	    	}
 
     	if(sInstance.bExitRequest)
     	{
 			sInstance.eState = E_STATE_TURN_RX_OFF;
 			sInstance.bExitRequest = FALSE;
-    	}
-
-    }
-
-    /* Tidy up and then exit */
-    UART_bClose(sInstance.hUartHandle);
-	closesocket(udp_socket);
-	WSACleanup();
-	
-	printf("Shutdown complete\n");
-	
-	return EXIT_SUCCESS;
+    	}	
+	}	
 }
 
+/*
+Local Functions
+*/
 
-/****************************************************************************/
-/***        Local Functions                                               ***/
-/****************************************************************************/
-/****************************************************************************
- *
- * NAME: vParseCommandLineOptions
- *
- * DESCRIPTION:
- * Parse command line options
- *
- * RETURNS:
- * void
- *
- ****************************************************************************/
-static void vParseCommandLineOptions(tsInstance *psInstance, int argc, char *argv[])
-{
+static void vParseCommandLineOptions(tsInstance *psInstance, int argc, char *argv[]) {
 
 	int c;
 
@@ -608,58 +559,10 @@ static void vParseCommandLineOptions(tsInstance *psInstance, int argc, char *arg
 			exit(EXIT_FAILURE);
 			break;
 		}
-
 	}
-
 }
 
-
-/****************************************************************************
- *
- * NAME: bCtrlHandler
- *
- * DESCRIPTION:
- * Handles Ctrl+C events
- *
- * RETURNS:
- * BOOL
- *
- ****************************************************************************/
-static BOOL WINAPI bCtrlHandler(DWORD dwCtrlType)
-{
-    switch (dwCtrlType)
-    {
-
-    case CTRL_C_EVENT:
-    case CTRL_SHUTDOWN_EVENT:
-        printf("\nExit requested\n");
-        sInstance.bExitRequest = TRUE;
-        return TRUE;
-
-    case CTRL_BREAK_EVENT:
-        printf("\nImmediate exit requested\n");
-        sInstance.bExit = TRUE;
-    	return TRUE;
-
-    default:
-        return FALSE;
-    }
-}
-
-
-/****************************************************************************
- *
- * NAME: eReadMessage
- *
- * DESCRIPTION:
- * Read a formatted message from the sniffer
- *
- * RETURNS:
- * teStatus
- *
- ****************************************************************************/
-static teStatus eReadMessage(tsInstance *psInstance, tsMessage *psMessage)
-{
+static teStatus eReadMessage(tsInstance *psInstance, tsMessage *psMessage) {
 
 	int n;
 
@@ -764,34 +667,16 @@ static teStatus eReadMessage(tsInstance *psInstance, tsMessage *psMessage)
 		default:
 			psMessage->eState = E_MESSAGE_STATE_INIT;
 			break;
-
 		}
-
     }
-
     return eStatus;
-
 }
 
-
-/****************************************************************************
- *
- * NAME: eWriteMessage
- *
- * DESCRIPTION:
- * Writes a message to the sniffer module
- *
- * RETURNS:
- * teStatus
- *
- ****************************************************************************/
-static teStatus eWriteMessage(tsInstance *psInstance, tsMessage *psMessage)
-{
+static teStatus eWriteMessage(tsInstance *psInstance, tsMessage *psMessage) {
 	int n;
 	uint8_t au8Buffer[258] = {0};
 
-	if(psMessage->u8Length > (0xff - 3))
-	{
+	if(psMessage->u8Length > (0xff - 3)) {
 		return E_STATUS_OUT_OF_RANGE;
 	}
 
@@ -803,67 +688,35 @@ static teStatus eWriteMessage(tsInstance *psInstance, tsMessage *psMessage)
 	au8Buffer[au8Buffer[2] + 1] = u8CalculateChecksum(au8Buffer);
 	au8Buffer[au8Buffer[2] + 2] = 0x04;
 
-	UART_vFlush(psInstance->hUartHandle);
-
 	/* Write message */
-	if(eWriteToUart(psInstance, au8Buffer[2] + 3, au8Buffer) != E_STATUS_OK)
-	{
+	if(eWriteToUart(psInstance, au8Buffer[2] + 3, au8Buffer) != E_STATUS_OK) {
 		return E_STATUS_ERROR_WRITING;
 	}
 
 	return E_STATUS_OK;
-
 }
 
 
-/****************************************************************************
- *
- * NAME: eReadFromUart
- *
- * DESCRIPTION:
- * Read bytes from the UART
- *
- * RETURNS:
- * teStatus
- *
- ****************************************************************************/
-static teStatus eReadFromUart(tsInstance *psInstance, int iTimeoutMilliseconds, int iBytesExpected, uint8_t *pu8Buffer, int *piBytesRead)
-{
-
+static teStatus eReadFromUart(tsInstance *psInstance, int iTimeoutMilliseconds, int iBytesExpected, uint8_t *pu8Buffer, int *piBytesRead) {
 	DWORD dwBytesRead = 0;
 	teStatus eStatus = E_STATUS_OK;
 
-    if(pu8Buffer == NULL)
-    {
+    if(pu8Buffer == NULL) {
         return E_STATUS_NULL_PARAMETER;
     }
 
     *piBytesRead = 0;
 
-    if(UART_bReadWithTimeout(psInstance->hUartHandle, &pu8Buffer[*piBytesRead], iBytesExpected, iTimeoutMilliseconds, &dwBytesRead) != TRUE)
-    {
+    if(UART_bReadWithTimeout(psInstance->hUartHandle, &pu8Buffer[*piBytesRead], iBytesExpected, iTimeoutMilliseconds, &dwBytesRead) != TRUE) {
     	eStatus = E_STATUS_ERROR_TIMEOUT;
     }
 
 	*piBytesRead = (int)dwBytesRead;
-
     return eStatus;
 }
 
 
-/****************************************************************************
- *
- * NAME: eWriteToUart
- *
- * DESCRIPTION:
- * Write bytes to the UART
- *
- * RETURNS:
- * teStatus
- *
- ****************************************************************************/
-static teStatus eWriteToUart(tsInstance *psInstance, int iLength, uint8_t *pu8Data)
-{
+static teStatus eWriteToUart(tsInstance *psInstance, int iLength, uint8_t *pu8Data) {
 	int n;
 
 	/* Write message */
@@ -882,25 +735,11 @@ static teStatus eWriteToUart(tsInstance *psInstance, int iLength, uint8_t *pu8Da
 		}
 		printf("\n");
 	}
-
 	return E_STATUS_OK;
 }
 
 
-/****************************************************************************
- *
- * NAME: u8CalculateChecksum
- *
- * DESCRIPTION:
- * Calculates the message checksum
- *
- * RETURNS:
- * uint8_t
- *
- ****************************************************************************/
-static uint8_t u8CalculateChecksum(uint8_t *pu8Message)
-{
-
+static uint8_t u8CalculateChecksum(uint8_t *pu8Message) {
 	int n;
 	uint8_t u8Checksum;
 	uint8_t u8Length = pu8Message[2];
@@ -921,10 +760,4 @@ static uint8_t u8CalculateChecksum(uint8_t *pu8Message)
 	if(sInstance.bDebug) printf("MsgId=%d Len=%d PayloadLen=%d CheckSum=%02x\n", u8MessageId, u8Length, iPayloadLength, u8Checksum);
 
 	return u8Checksum;
-
 }
-
-/****************************************************************************/
-/***        END OF FILE                                                   ***/
-/****************************************************************************/
-
